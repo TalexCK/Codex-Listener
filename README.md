@@ -20,6 +20,9 @@ AI agents run standalone Python scripts via their shell tool. Each script talks 
 # From source
 uv pip install -e .
 
+# From PyPI
+uv tool install codex-listener
+
 # Verify
 codex-listener --version
 ```
