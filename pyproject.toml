@@ -1,6 +1,6 @@
 [project]
 name = "codex-listener"
-version = "0.1.0"
+version = "0.1.1"
 description = "A daemon that lets AI agents orchestrate OpenAI Codex CLI tasks"
 readme = "README.md"
 requires-python = ">=3.10"

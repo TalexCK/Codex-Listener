@@ -21,6 +21,12 @@ DEFAULTS: dict[str, object] = {
         "verificationToken": "",
         "allowFrom": [],
     },
+    "telegram": {
+        "enabled": False,
+        "token": "",
+        "allowFrom": [],
+        "proxy": None,
+    },
 }
 
 
@@ -34,6 +40,16 @@ class FeishuConfig:
     encrypt_key: str
     verification_token: str
     allow_from: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TelegramConfig:
+    """Telegram Bot configuration."""
+
+    enabled: bool
+    token: str
+    allow_from: list[str] = field(default_factory=list)
+    proxy: str | None = None
 
 
 def load_config() -> dict[str, object]:
@@ -85,4 +101,32 @@ def get_feishu_config() -> FeishuConfig | None:
         encrypt_key=feishu.get("encryptKey", ""),
         verification_token=feishu.get("verificationToken", ""),
         allow_from=allow_from,
+    )
+
+
+def get_telegram_config() -> TelegramConfig | None:
+    """Return TelegramConfig if enabled and configured, else None."""
+    cfg = load_config()
+    telegram = cfg.get("telegram")
+    if not isinstance(telegram, dict):
+        return None
+
+    if not telegram.get("enabled"):
+        return None
+
+    token = telegram.get("token", "")
+    if not token:
+        logger.warning("Telegram enabled but token missing")
+        return None
+
+    allow_from = telegram.get("allowFrom", [])
+    if not allow_from:
+        logger.warning("Telegram enabled but allowFrom is empty")
+        return None
+
+    return TelegramConfig(
+        enabled=True,
+        token=token,
+        allow_from=allow_from,
+        proxy=telegram.get("proxy"),
     )

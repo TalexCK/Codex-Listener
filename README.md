@@ -76,6 +76,12 @@ Config file: `~/.codex-listener/config.json` (auto-created on first run).
     "encryptKey": "",
     "verificationToken": "",
     "allowFrom": ["ou_xxxx"]
+  },
+  "telegram": {
+    "enabled": false,
+    "token": "",
+    "allowFrom": [],
+    "proxy": null
   }
 }
 ```
@@ -90,6 +96,15 @@ Config file: `~/.codex-listener/config.json` (auto-created on first run).
 | `encryptKey` | Event encryption key (optional, for webhook verification) |
 | `verificationToken` | Event verification token (optional) |
 | `allowFrom` | List of Feishu `open_id`s to receive notifications |
+
+**`telegram`** — Telegram Bot notification settings. Similar to Feishu, sends formatted messages when tasks complete or fail.
+
+| Field | Description                                                                   |
+|-------|-------------------------------------------------------------------------------|
+| `enabled` | Set to `true` to enable Telegram notifications                                |
+| `token` | Telegram Bot token (from [@BotFather](https://t.me/botfather))                |
+| `allowFrom` | List of Telegram chat IDs to receive notifications (Get from NanoBot console) |
+| `proxy` | Optional HTTP/HTTPS proxy URL (e.g., `"http://proxy.example.com:8080"`)       |
 
 ## AI Integration
 
@@ -115,7 +130,10 @@ src/codex_listener/
 ├── models.py            # Pydantic models (TaskCreate, TaskStatus, etc.)
 ├── config.py            # Configuration loading (~/.codex-listener/config.json)
 ├── session_parser.py    # Parse Codex session JSONL for results & token usage
-└── feishu.py            # Feishu Bot API (send card notifications)
+└── channels/            # External bot notification channels
+    ├── __init__.py      # Channel exports
+    ├── feishu.py        # Feishu Bot API (send card notifications)
+    └── telegram.py      # Telegram Bot API (send text notifications)
 
 skills/Codex-Listener/
 ├── SKILL.md             # AI skill definition
