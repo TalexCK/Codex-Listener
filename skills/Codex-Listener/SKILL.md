@@ -12,7 +12,7 @@ Delegate coding tasks to OpenAI Codex CLI through the codex-listener daemon. Cod
 
 1. **Submit only.** After submitting a task, immediately move on to other work. Do NOT poll, wait, or check the task status.
 2. **No polling.** Do NOT call `status.py` or `list_tasks.py` after submitting unless the user explicitly asks you to check a task's status.
-3. **Notification is automatic.** The daemon will notify the user via Feishu Bot when the task finishes. You will NOT receive the result — just move on.
+3. **Notification is automatic.** The daemon will notify the user through the configured messaging channel(s) (Feishu/Telegram) when the task finishes. You will NOT receive the result — just move on.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ All scripts are in the `scripts/` directory relative to this skill.
 python3 scripts/submit.py --prompt "fix the type error in auth.py" --cwd /path/to/project
 # Returns: {"task_id": "a1b2c3d4", "status": "pending", ...}
 
-# 2. Done. Move on to other work. The user will be notified via Feishu when codex finishes.
+# 2. Done. Move on to other work. The user will be notified through their configured channels when codex finishes.
 ```
 
 ## Scripts
