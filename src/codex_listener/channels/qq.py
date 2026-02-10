@@ -82,7 +82,9 @@ class _NotificationBot(botpy.Client):
     """Internal bot client for sending notifications."""
 
     def __init__(self, message: str, recipients: list[str]):
-        super().__init__()
+        # Initialize with C2C message intent
+        intents = botpy.Intents(c2c_group_at_messages=True)
+        super().__init__(intents=intents)
         self.message = message
         self.recipients = recipients
         self._sent = False
