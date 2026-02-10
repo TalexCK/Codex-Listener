@@ -27,6 +27,12 @@ DEFAULTS: dict[str, object] = {
         "allowFrom": [],
         "proxy": None,
     },
+    "qq": {
+        "enabled": False,
+        "appId": "",
+        "secret": "",
+        "allowFrom": [],
+    },
 }
 
 
@@ -50,6 +56,16 @@ class TelegramConfig:
     token: str
     allow_from: list[str] = field(default_factory=list)
     proxy: str | None = None
+
+
+@dataclass
+class QQConfig:
+    """QQ Bot configuration."""
+
+    enabled: bool
+    app_id: str
+    secret: str
+    allow_from: list[str] = field(default_factory=list)
 
 
 def load_config() -> dict[str, object]:
@@ -129,4 +145,33 @@ def get_telegram_config() -> TelegramConfig | None:
         token=token,
         allow_from=allow_from,
         proxy=telegram.get("proxy"),
+    )
+
+
+def get_qq_config() -> QQConfig | None:
+    """Return QQConfig if enabled and configured, else None."""
+    cfg = load_config()
+    qq = cfg.get("qq")
+    if not isinstance(qq, dict):
+        return None
+
+    if not qq.get("enabled"):
+        return None
+
+    app_id = qq.get("appId", "")
+    secret = qq.get("secret", "")
+    if not app_id or not secret:
+        logger.warning("QQ enabled but appId/secret missing")
+        return None
+
+    allow_from = qq.get("allowFrom", [])
+    if not allow_from:
+        logger.warning("QQ enabled but allowFrom is empty")
+        return None
+
+    return QQConfig(
+        enabled=True,
+        app_id=app_id,
+        secret=secret,
+        allow_from=allow_from,
     )
