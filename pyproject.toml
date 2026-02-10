@@ -24,7 +24,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.0",
-    "botpy>=2.0",
+    "qq-botpy>=1.2.1",
 ]
 
 [project.urls]
