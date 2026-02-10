@@ -99,12 +99,12 @@ Config file: `~/.codex-listener/config.json` (auto-created on first run).
 
 **`telegram`** — Telegram Bot notification settings. Similar to Feishu, sends formatted messages when tasks complete or fail.
 
-| Field | Description |
-|-------|-------------|
-| `enabled` | Set to `true` to enable Telegram notifications |
-| `token` | Telegram Bot token (from [@BotFather](https://t.me/botfather)) |
-| `allowFrom` | List of Telegram chat IDs to receive notifications |
-| `proxy` | Optional HTTP/HTTPS proxy URL (e.g., `"http://proxy.example.com:8080"`) |
+| Field | Description                                                                   |
+|-------|-------------------------------------------------------------------------------|
+| `enabled` | Set to `true` to enable Telegram notifications                                |
+| `token` | Telegram Bot token (from [@BotFather](https://t.me/botfather))                |
+| `allowFrom` | List of Telegram chat IDs to receive notifications (Get from NanoBot console) |
+| `proxy` | Optional HTTP/HTTPS proxy URL (e.g., `"http://proxy.example.com:8080"`)       |
 
 ## AI Integration
 
