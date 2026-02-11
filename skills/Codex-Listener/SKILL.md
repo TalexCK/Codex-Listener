@@ -18,7 +18,7 @@ Delegate coding tasks to OpenAI Codex CLI through the codex-listener daemon.
 6. **No inferred excuses.** If status query fails, report the raw JSON error and stop guessing. Do NOT claim "权限受限/系统拦截" unless the tool output explicitly says so.
 7. **No shell fallbacks for status.** Do NOT append `2>/dev/null`, `|| echo`, or pipes that change script output.
 8. **Do not use artifacts as status proxy.** Do NOT inspect `.codex/sessions` or output files to infer task state unless the user explicitly asks to verify deliverables.
-9. **Current default sandbox is privileged.** Server default is `danger-full-access`. If lower privilege is needed, explicitly pass `--sandbox workspace-write`.
+9. **Use explicit sandbox when needed.** Default sandbox follows server-side model defaults (currently `workspace-write`). For system-level tasks, explicitly pass `--sandbox danger-full-access`.
 10. **System tasks must include acceptance checks in the same prompt.** For installs/services/users/permissions, require "execute + verify + report verification output".
 11. **Complex tasks must enter PlanMode first.** Trigger PlanMode if any of: write/delete files >=2, any delete/overwrite/batch replace, estimated steps >=5, or system-level changes (packages/services/permissions/env).
 12. **Use Plan Bridge for multi-turn planning.** Submit stage-A with `--workflow-mode plan_bridge`; if result is `bridge_stage=needs_input`, collect user answers and continue with `--resume-session` (stage-B). Do not execute implementation until plan is ready.
