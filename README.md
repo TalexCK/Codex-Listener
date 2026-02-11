@@ -17,7 +17,7 @@ AI agents run standalone Python scripts via their shell tool. Each script talks 
 ## Installation
 
 ```bash
-# From source
+# From source (Recommend)
 uv pip install -e .
 
 # From PyPI
@@ -126,12 +126,9 @@ Config file: `~/.codex-listener/config.json` (auto-created on first run).
 Copy the skill file for your AI tool:
 
 - **Claude Code**: Copy `skills/Codex-Listener/SKILL.md` to your project's `.claude/skills/` directory.
+- **NanoBot**: Copy `skills/Codex-Listener/SKILL.md` to your nanobot's Workspace `skills/` directory.
 
 The skill file teaches the AI how to use the Python scripts in `skills/Codex-Listener/scripts/`.
-
-## Testing
-
-See [TEST.md](TEST.md) for manual test procedures covering daemon operations and AI skill commands.
 
 ## Project Structure
 
