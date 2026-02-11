@@ -18,10 +18,30 @@ def main() -> None:
     parser.add_argument("--prompt", required=True, help="Task prompt")
     parser.add_argument("--model", default=None, help="Model name")
     parser.add_argument("--cwd", default=None, help="Working directory for Codex")
-    parser.add_argument("--sandbox", default=None, help="Sandbox mode")
+    parser.add_argument(
+        "--sandbox",
+        default=None,
+        help="Sandbox mode (default follows server-side setting)",
+    )
     parser.add_argument(
         "--reasoning-effort", default=None,
         help="Reasoning effort: high, medium, or low (default: high)",
+    )
+    parser.add_argument(
+        "--workflow-mode",
+        default=None,
+        choices=["normal", "plan_bridge"],
+        help="Workflow mode (normal or plan_bridge)",
+    )
+    parser.add_argument(
+        "--resume-session",
+        default=None,
+        help="Resume an existing Codex session ID",
+    )
+    parser.add_argument(
+        "--parent-task-id",
+        default=None,
+        help="Parent task id when continuing a plan bridge flow",
     )
     args = parser.parse_args()
 
@@ -34,6 +54,12 @@ def main() -> None:
         body["sandbox"] = args.sandbox
     if args.reasoning_effort:
         body["reasoning_effort"] = args.reasoning_effort
+    if args.workflow_mode:
+        body["workflow_mode"] = args.workflow_mode
+    if args.resume_session:
+        body["resume_session_id"] = args.resume_session
+    if args.parent_task_id:
+        body["parent_task_id"] = args.parent_task_id
 
     result = request("POST", "/tasks", body)
     json_out(result)

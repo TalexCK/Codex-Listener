@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import signal
 import uuid
 from collections import OrderedDict
@@ -62,6 +63,8 @@ class TaskManager:
             task_id=task_id,
             status="pending",
             created_at=now,
+            workflow_mode=req.workflow_mode,
+            parent_task_id=req.parent_task_id,
         )
         self._tasks[task_id] = task
 
@@ -138,8 +141,8 @@ class TaskManager:
         task.status = "running"
         task.pid = proc.pid
 
-        # Read JSONL output and extract the final agent message
-        output = await self._read_codex_output(proc)
+        # Read JSONL output and extract the final agent message/session id
+        output, session_id = await self._read_codex_output(proc)
 
         exit_code = await proc.wait()
         task.exit_code = exit_code
@@ -148,6 +151,7 @@ class TaskManager:
         if exit_code == 0:
             task.status = "completed"
             task.output = output
+            task.session_id = session_id
         else:
             task.status = "failed"
             stderr_bytes = await proc.stderr.read() if proc.stderr else b""
@@ -155,6 +159,12 @@ class TaskManager:
             task.error = (
                 output or stderr_text or f"Exited with code {exit_code}"
             )
+
+        summary = self._enrich_task_from_session(task)
+        if req.workflow_mode == "plan_bridge":
+            bridge_payload = self._extract_bridge_payload(task.output)
+            if bridge_payload:
+                self._apply_bridge_payload(task, bridge_payload)
 
         logger.info(
             "Task %s finished: status=%s exit_code=%s",
@@ -167,9 +177,9 @@ class TaskManager:
         self._processes.pop(task_id, None)
         self._bg_tasks.pop(task_id, None)
 
-        await self._notify(task)
+        await self._notify(task, summary=summary)
 
-    async def _notify(self, task: TaskStatus) -> None:
+    async def _notify(self, task: TaskStatus, summary: object | None = None) -> None:
         """Send notifications (Feishu/Telegram) with session details after task completion."""
         from codex_listener.config import get_feishu_config, get_telegram_config
         from codex_listener.channels import send_feishu_notification, send_telegram_notification
@@ -182,7 +192,8 @@ class TaskManager:
             return
 
         # Parse the session JSONL to get detailed results
-        summary = get_session_summary(task.created_at, task.completed_at)
+        if summary is None:
+            summary = get_session_summary(task.created_at, task.completed_at)
         logger.info(
             "Notify task %s: summary=%s assistant_msg_len=%s",
             task.task_id,
@@ -251,6 +262,9 @@ class TaskManager:
                         summary.reasoning_tokens if summary else None
                     ),
                     completed_at=completed_at,
+                    bridge_stage=task.bridge_stage,
+                    bridge_questions=task.bridge_questions,
+                    bridge_plan=task.bridge_plan,
                 )
             except Exception:
                 logger.exception(
@@ -259,12 +273,13 @@ class TaskManager:
 
     async def _read_codex_output(
         self, proc: asyncio.subprocess.Process,
-    ) -> str | None:
-        """Read and drain codex --json stdout, returning last message text."""
+    ) -> tuple[str | None, str | None]:
+        """Read codex --json stdout, returning (last_message, session_id)."""
         if proc.stdout is None:
-            return None
+            return None, None
 
         last_message: str | None = None
+        session_id: str | None = None
 
         while True:
             line = await proc.stdout.readline()
@@ -281,14 +296,41 @@ class TaskManager:
                 logger.debug("Non-JSON line from codex: %s", text[:200])
                 continue
 
+            if event.get("type") == "thread.started":
+                thread_id = event.get("thread_id")
+                if isinstance(thread_id, str) and thread_id.strip():
+                    session_id = thread_id.strip()
+
             # Extract final message from codex JSONL events.
-            # codex --json emits item.completed events with message content.
+            # Different codex versions emit either `item.completed` with embedded
+            # message content, or `response_item` assistant messages.
             if (
                 event.get("type") == "item.completed"
                 and isinstance(event.get("item"), dict)
-                and event["item"].get("type") == "message"
             ):
-                content_parts = event["item"].get("content", [])
+                item = event["item"]
+                msg = ""
+                if item.get("type") == "message":
+                    content_parts = item.get("content", [])
+                    texts = [
+                        p.get("text", "")
+                        for p in content_parts
+                        if isinstance(p, dict) and p.get("type") == "output_text"
+                    ]
+                    msg = "\n".join(texts).strip()
+                elif item.get("type") == "agent_message":
+                    msg = str(item.get("text", "")).strip()
+                if msg:
+                    last_message = msg
+                continue
+
+            if (
+                event.get("type") == "response_item"
+                and isinstance(event.get("payload"), dict)
+                and event["payload"].get("type") == "message"
+                and event["payload"].get("role") == "assistant"
+            ):
+                content_parts = event["payload"].get("content", [])
                 texts = [
                     p.get("text", "")
                     for p in content_parts
@@ -298,20 +340,146 @@ class TaskManager:
                 if msg:
                     last_message = msg
 
-        return last_message
+        return last_message, session_id
+
+    def _enrich_task_from_session(self, task: TaskStatus) -> object | None:
+        """Fill task fields from session summary when available."""
+        from codex_listener.session_parser import get_session_summary
+
+        summary = get_session_summary(task.created_at, task.completed_at)
+        if summary is None:
+            return None
+
+        if not task.session_id and summary.session_id:
+            task.session_id = summary.session_id
+
+        if (not task.output) and summary.last_assistant_message:
+            task.output = summary.last_assistant_message
+
+        return summary
+
+    def _extract_bridge_payload(self, text: str | None) -> dict[str, object] | None:
+        """Extract bridge payload JSON from assistant output text."""
+        if not text:
+            return None
+
+        candidates: list[dict[str, object]] = []
+        decoder = json.JSONDecoder()
+
+        # 1) Direct JSON message
+        raw = text.strip()
+        if raw.startswith("{") and raw.endswith("}"):
+            try:
+                obj = json.loads(raw)
+                if isinstance(obj, dict):
+                    candidates.append(obj)
+            except json.JSONDecodeError:
+                pass
+
+        # 2) JSON fenced blocks
+        for block in re.findall(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, re.IGNORECASE):
+            try:
+                obj = json.loads(block.strip())
+                if isinstance(obj, dict):
+                    candidates.append(obj)
+            except json.JSONDecodeError:
+                continue
+
+        # 3) Any raw JSON objects in free text
+        idx = 0
+        while idx < len(text):
+            start = text.find("{", idx)
+            if start < 0:
+                break
+            try:
+                obj, consumed = decoder.raw_decode(text[start:])
+            except json.JSONDecodeError:
+                idx = start + 1
+                continue
+            if isinstance(obj, dict):
+                candidates.append(obj)
+            idx = start + consumed
+
+        for obj in candidates:
+            if obj.get("bridge") != "planmode.v1":
+                continue
+            stage = obj.get("stage")
+            if stage not in {"needs_input", "plan_ready"}:
+                continue
+            return obj
+
+        return None
+
+    def _apply_bridge_payload(
+        self,
+        task: TaskStatus,
+        payload: dict[str, object],
+    ) -> None:
+        """Map plan bridge payload to persisted task fields."""
+        stage = payload.get("stage")
+        if stage == "needs_input":
+            qs = payload.get("questions")
+            if isinstance(qs, list):
+                task.bridge_questions = [str(q).strip() for q in qs if str(q).strip()]
+            else:
+                task.bridge_questions = []
+            task.bridge_plan = None
+            task.bridge_stage = "needs_input"
+            return
+
+        if stage == "plan_ready":
+            plan = payload.get("plan_markdown")
+            if plan is None:
+                # Compatibility fallback: some models return `plan` instead of
+                # `plan_markdown` in plan_ready payloads.
+                plan = payload.get("plan")
+            if isinstance(plan, dict):
+                task.bridge_plan = json.dumps(plan, ensure_ascii=False, indent=2)
+            elif plan is None:
+                task.bridge_plan = ""
+            else:
+                task.bridge_plan = str(plan).strip()
+            task.bridge_questions = None
+            task.bridge_stage = "plan_ready"
+            return
+
+        task.bridge_stage = "none"
+        task.bridge_questions = None
+        task.bridge_plan = None
 
     def _build_command(self, req: TaskCreate) -> list[str]:
         """Build the codex exec command line."""
-        cmd = [
-            "codex",
-            "exec",
-            "--json",
-            "--model", req.model,
-            "--sandbox", req.sandbox,
-            "-c", f"model_reasoning_effort=\"{req.reasoning_effort}\"",
-        ]
+        if req.resume_session_id:
+            cmd = [
+                "codex",
+                "exec",
+                "resume",
+                "--json",
+                "--skip-git-repo-check",
+                "--model", req.model,
+                "-c", f"model_reasoning_effort=\"{req.reasoning_effort}\"",
+            ]
+        else:
+            cmd = [
+                "codex",
+                "exec",
+                "--json",
+                "--skip-git-repo-check",
+                "--model", req.model,
+                "--sandbox", req.sandbox,
+                "-c", f"model_reasoning_effort=\"{req.reasoning_effort}\"",
+            ]
         if req.full_auto:
-            cmd.append("--full-auto")
+            # NOTE: `codex exec resume` does not support `--sandbox`.
+            # Keep behavior consistent by mapping sandbox intent to supported flags.
+            if req.sandbox == "workspace-write":
+                cmd.append("--full-auto")
+            elif req.sandbox == "danger-full-access":
+                cmd.append("--dangerously-bypass-approvals-and-sandbox")
+            else:
+                cmd.extend(["-c", "approval_policy=\"never\""])
+        if req.resume_session_id:
+            cmd.append(req.resume_session_id)
         cmd.append(req.prompt)
         return cmd
 
