@@ -13,6 +13,8 @@ from codex_listener.config import TelegramConfig
 
 logger = logging.getLogger(__name__)
 NOTIFIER_NAME = "Codex-Listener"
+MAX_ASSISTANT_ESCAPED_LEN = 2000
+MAX_PLAN_PREVIEW_ESCAPED_LEN = 600
 
 
 def _build_api_url(token: str, method: str) -> str:
@@ -91,6 +93,22 @@ def _escape_markdown_v2(text: str) -> str:
     return text
 
 
+def _escape_and_truncate_markdown_v2(text: str, max_len: int) -> str:
+    """Escape MarkdownV2 text and truncate by escaped length."""
+    escaped = _escape_markdown_v2(text)
+    if len(escaped) <= max_len:
+        return escaped
+
+    suffix = _escape_markdown_v2("\n...")
+    if max_len <= len(suffix):
+        return suffix[:max_len]
+
+    truncated = escaped[: max_len - len(suffix)]
+    while truncated.endswith("\\"):
+        truncated = truncated[:-1]
+    return truncated + suffix
+
+
 def _build_reply_markup(task_id: str, bridge_stage: str | None) -> dict[str, object] | None:
     """Build Telegram inline keyboard for Plan Bridge stages."""
     if bridge_stage == "needs_input":
@@ -163,10 +181,10 @@ def _build_message(
     
     # Assistant message
     if assistant_message:
-        truncated = assistant_message[:2000]
-        if len(assistant_message) > 2000:
-            truncated += "\n..."
-        escaped_truncated = _escape_markdown_v2(truncated)
+        escaped_truncated = _escape_and_truncate_markdown_v2(
+            assistant_message,
+            MAX_ASSISTANT_ESCAPED_LEN,
+        )
         lines.append("*Codex Response:*")
         lines.append(escaped_truncated)
     else:
@@ -187,10 +205,10 @@ def _build_message(
                 f"Reply template: `/plan\\-reply {_escape_markdown_v2(task_id)} <your answer>`"
             )
         elif bridge_stage == "plan_ready" and bridge_plan:
-            plan_preview = bridge_plan[:600]
-            if len(bridge_plan) > 600:
-                plan_preview += "\n..."
-            escaped_plan_preview = _escape_markdown_v2(plan_preview)
+            escaped_plan_preview = _escape_and_truncate_markdown_v2(
+                bridge_plan,
+                MAX_PLAN_PREVIEW_ESCAPED_LEN,
+            )
             lines.append("Plan preview:")
             lines.append(escaped_plan_preview)
     
