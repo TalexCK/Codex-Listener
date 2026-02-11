@@ -82,6 +82,12 @@ Config file: `~/.codex-listener/config.json` (auto-created on first run).
     "token": "",
     "allowFrom": [],
     "proxy": null
+  },
+  "qq": {
+    "enabled": false,
+    "appId": "YOUR_APP_ID",
+    "secret": "YOUR_APP_SECRET",
+    "allowFrom": []
   }
 }
 ```
@@ -105,6 +111,15 @@ Config file: `~/.codex-listener/config.json` (auto-created on first run).
 | `token` | Telegram Bot token (from [@BotFather](https://t.me/botfather))                |
 | `allowFrom` | List of Telegram chat IDs to receive notifications (Get from NanoBot console) |
 | `proxy` | Optional HTTP/HTTPS proxy URL (e.g., `"http://proxy.example.com:8080"`)       |
+
+**`qq`** — QQ Bot notification settings using Botpy SDK. Sends formatted messages to users when tasks complete or fail.
+
+| Field | Description                                                                   |
+|-------|-------------------------------------------------------------------------------|
+| `enabled` | Set to `true` to enable QQ notifications                                      |
+| `appId` | QQ Bot application ID (from [QQ Open Platform](https://q.qq.com))            |
+| `secret` | QQ Bot application secret                                                     |
+| `allowFrom` | List of user `openid`s to receive notifications                               |
 
 ## AI Integration
 
@@ -133,6 +148,7 @@ src/codex_listener/
 └── channels/            # External bot notification channels
     ├── __init__.py      # Channel exports
     ├── feishu.py        # Feishu Bot API (send card notifications)
+    ├── qq.py            # QQ Bot API (send text notifications via Botpy)
     └── telegram.py      # Telegram Bot API (send text notifications)
 
 skills/Codex-Listener/

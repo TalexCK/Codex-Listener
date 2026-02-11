@@ -181,14 +181,15 @@ class TaskManager:
 
     async def _notify(self, task: TaskStatus, summary: object | None = None) -> None:
         """Send notifications (Feishu/Telegram) with session details after task completion."""
-        from codex_listener.config import get_feishu_config, get_telegram_config
-        from codex_listener.channels import send_feishu_notification, send_telegram_notification
+        from codex_listener.config import get_feishu_config, get_telegram_config, get_qq_config
+        from codex_listener.channels import send_feishu_notification, send_telegram_notification, send_qq_notification
         from codex_listener.session_parser import get_session_summary
 
         feishu_cfg = get_feishu_config()
         telegram_cfg = get_telegram_config()
+        qq_cfg = get_qq_config()
 
-        if feishu_cfg is None and telegram_cfg is None:
+        if feishu_cfg is None and telegram_cfg is None and qq_cfg is None:
             return
 
         # Parse the session JSONL to get detailed results
@@ -269,6 +270,34 @@ class TaskManager:
             except Exception:
                 logger.exception(
                     "Telegram notification failed for task %s", task.task_id,
+                )
+
+        # Send QQ notification
+        if qq_cfg is not None:
+            logger.info("Sending QQ notification for task %s", task.task_id)
+            try:
+                await send_qq_notification(
+                    config=qq_cfg,
+                    task_id=task.task_id,
+                    status=task.status,
+                    assistant_message=assistant_msg,
+                    total_tokens=(
+                        summary.total_tokens if summary else None
+                    ),
+                    input_tokens=(
+                        summary.input_tokens if summary else None
+                    ),
+                    output_tokens=(
+                        summary.output_tokens if summary else None
+                    ),
+                    reasoning_tokens=(
+                        summary.reasoning_tokens if summary else None
+                    ),
+                    completed_at=completed_at,
+                )
+            except Exception:
+                logger.exception(
+                    "QQ notification failed for task %s", task.task_id,
                 )
 
     async def _read_codex_output(
