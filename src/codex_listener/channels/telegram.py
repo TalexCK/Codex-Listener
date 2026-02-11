@@ -166,8 +166,9 @@ def _build_message(
         truncated = assistant_message[:2000]
         if len(assistant_message) > 2000:
             truncated += "\n..."
+        escaped_truncated = _escape_markdown_v2(truncated)
         lines.append("*Codex Response:*")
-        lines.append(f"```\n{truncated}\n```")
+        lines.append(escaped_truncated)
     else:
         lines.append("*Codex Response:* \\(none\\)")
 
@@ -189,8 +190,9 @@ def _build_message(
             plan_preview = bridge_plan[:600]
             if len(bridge_plan) > 600:
                 plan_preview += "\n..."
+            escaped_plan_preview = _escape_markdown_v2(plan_preview)
             lines.append("Plan preview:")
-            lines.append(f"```\n{plan_preview}\n```")
+            lines.append(escaped_plan_preview)
     
     lines.append("")
     lines.append("─" * 30)
