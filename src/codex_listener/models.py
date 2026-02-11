@@ -17,6 +17,9 @@ class TaskCreate(BaseModel):
     sandbox: str = "workspace-write"
     full_auto: bool = True
     reasoning_effort: str = "high"
+    workflow_mode: Literal["normal", "plan_bridge"] = "normal"
+    resume_session_id: str | None = None
+    parent_task_id: str | None = None
 
 
 class TaskStatus(BaseModel):
@@ -30,6 +33,12 @@ class TaskStatus(BaseModel):
     error: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
+    workflow_mode: Literal["normal", "plan_bridge"] = "normal"
+    parent_task_id: str | None = None
+    session_id: str | None = None
+    bridge_stage: Literal["none", "needs_input", "plan_ready"] = "none"
+    bridge_questions: list[str] | None = None
+    bridge_plan: str | None = None
 
 
 class HealthResponse(BaseModel):
