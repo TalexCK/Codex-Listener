@@ -12,6 +12,7 @@ from functools import partial
 from codex_listener.config import TelegramConfig
 
 logger = logging.getLogger(__name__)
+NOTIFIER_NAME = "Codex-Listener"
 
 
 def _build_api_url(token: str, method: str) -> str:
@@ -23,15 +24,21 @@ def _send_message(
     token: str,
     chat_id: str,
     text: str,
+    parse_mode: str | None = None,
+    reply_markup: dict[str, object] | None = None,
     proxy: str | None = None,
 ) -> bool:
     """Send a text message to a specific chat."""
     url = _build_api_url(token, "sendMessage")
-    body = json.dumps({
+    payload: dict[str, object] = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "MarkdownV2",
-    }).encode()
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    body = json.dumps(payload).encode()
 
     req = urllib.request.Request(
         url,
@@ -57,6 +64,20 @@ def _send_message(
             )
             return False
         return True
+    except urllib.error.HTTPError as e:
+        detail = str(e)
+        try:
+            payload = json.loads(e.read().decode())
+            if isinstance(payload, dict):
+                detail = payload.get("description", detail)
+        except Exception:
+            pass
+        logger.warning(
+            "Telegram send request failed to %s: %s",
+            chat_id,
+            detail,
+        )
+        return False
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         logger.warning("Telegram send request failed to %s: %s", chat_id, e)
         return False
@@ -70,6 +91,45 @@ def _escape_markdown_v2(text: str) -> str:
     return text
 
 
+def _build_reply_markup(task_id: str, bridge_stage: str | None) -> dict[str, object] | None:
+    """Build Telegram inline keyboard for Plan Bridge stages."""
+    if bridge_stage == "needs_input":
+        return {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "✍️ 回复问题",
+                        "switch_inline_query_current_chat": f"/plan-reply {task_id} ",
+                    }
+                ]
+            ]
+        }
+
+    if bridge_stage == "plan_ready":
+        return {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "✅ 执行计划",
+                        "callback_data": f"pb1|exec|{task_id}",
+                    }
+                ],
+                [
+                    {
+                        "text": "📝 继续修改",
+                        "switch_inline_query_current_chat": f"/plan-reply {task_id} ",
+                    },
+                    {
+                        "text": "❌ 取消",
+                        "callback_data": f"pb1|cancel|{task_id}",
+                    },
+                ],
+            ]
+        }
+
+    return None
+
+
 def _build_message(
     task_id: str,
     status: str,
@@ -79,13 +139,17 @@ def _build_message(
     output_tokens: int | None,
     reasoning_tokens: int | None,
     completed_at: str | None,
+    bridge_stage: str | None,
+    bridge_questions: list[str] | None,
+    bridge_plan: str | None,
 ) -> str:
     """Build Telegram message with Markdown formatting."""
     is_ok = status == "completed"
     status_emoji = "✅" if is_ok else "❌"
+    notifier = _escape_markdown_v2(NOTIFIER_NAME)
     
     lines = [
-        f"{status_emoji} *Codex Task {_escape_markdown_v2(task_id)}*",
+        f"{status_emoji} *{notifier} Task {_escape_markdown_v2(task_id)}*",
         "",
         f"*Status:* {_escape_markdown_v2(status)}",
     ]
@@ -106,6 +170,27 @@ def _build_message(
         lines.append(f"```\n{truncated}\n```")
     else:
         lines.append("*Codex Response:* \\(none\\)")
+
+    if bridge_stage in {"needs_input", "plan_ready"}:
+        lines.append("")
+        lines.append("*Plan Bridge:*")
+        lines.append(f"Stage: `{_escape_markdown_v2(bridge_stage)}`")
+        if bridge_stage == "needs_input":
+            if bridge_questions:
+                lines.append("Questions:")
+                for i, q in enumerate(bridge_questions, 1):
+                    lines.append(
+                        f"{i}\\. {_escape_markdown_v2(str(q).strip())}"
+                    )
+            lines.append(
+                f"Reply template: `/plan\\-reply {_escape_markdown_v2(task_id)} <your answer>`"
+            )
+        elif bridge_stage == "plan_ready" and bridge_plan:
+            plan_preview = bridge_plan[:600]
+            if len(bridge_plan) > 600:
+                plan_preview += "\n..."
+            lines.append("Plan preview:")
+            lines.append(f"```\n{plan_preview}\n```")
     
     lines.append("")
     lines.append("─" * 30)
@@ -126,6 +211,69 @@ def _build_message(
     return "\n".join(lines)
 
 
+def _build_plain_message(
+    task_id: str,
+    status: str,
+    assistant_message: str | None,
+    total_tokens: int | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    reasoning_tokens: int | None,
+    completed_at: str | None,
+    bridge_stage: str | None,
+    bridge_questions: list[str] | None,
+    bridge_plan: str | None,
+) -> str:
+    """Build plain-text fallback message for Telegram."""
+    is_ok = status == "completed"
+    status_emoji = "SUCCESS" if is_ok else "FAILED"
+    lines = [
+        f"{NOTIFIER_NAME} Task {task_id}",
+        f"Status: {status_emoji} ({status})",
+    ]
+    if completed_at:
+        lines.append(f"Completed: {completed_at}")
+
+    lines.append("")
+    lines.append("Codex Response:")
+    if assistant_message:
+        truncated = assistant_message[:2800]
+        if len(assistant_message) > 2800:
+            truncated += "\n..."
+        lines.append(truncated)
+    else:
+        lines.append("(none)")
+
+    if total_tokens is not None:
+        parts = [f"{total_tokens:,} total"]
+        if input_tokens is not None:
+            parts.append(f"{input_tokens:,} in")
+        if output_tokens is not None:
+            parts.append(f"{output_tokens:,} out")
+        if reasoning_tokens:
+            parts.append(f"{reasoning_tokens:,} reasoning")
+        lines.append("")
+        lines.append(f"Token usage: {' / '.join(parts)}")
+
+    if bridge_stage in {"needs_input", "plan_ready"}:
+        lines.append("")
+        lines.append(f"Plan Bridge Stage: {bridge_stage}")
+        if bridge_stage == "needs_input":
+            if bridge_questions:
+                lines.append("Questions:")
+                for i, q in enumerate(bridge_questions, 1):
+                    lines.append(f"{i}. {q}")
+            lines.append(f"Reply template: /plan-reply {task_id} <your answer>")
+        elif bridge_stage == "plan_ready" and bridge_plan:
+            plan_preview = bridge_plan[:800]
+            if len(bridge_plan) > 800:
+                plan_preview += "\n..."
+            lines.append("Plan preview:")
+            lines.append(plan_preview)
+
+    return "\n".join(lines)
+
+
 def _do_send(
     config: TelegramConfig,
     task_id: str,
@@ -136,9 +284,14 @@ def _do_send(
     output_tokens: int | None,
     reasoning_tokens: int | None,
     completed_at: str | None,
+    bridge_stage: str | None,
+    bridge_questions: list[str] | None,
+    bridge_plan: str | None,
 ) -> None:
     """Synchronous: send message to all recipients."""
-    message = _build_message(
+    reply_markup = _build_reply_markup(task_id, bridge_stage)
+
+    markdown_message = _build_message(
         task_id=task_id,
         status=status,
         assistant_message=assistant_message,
@@ -147,10 +300,43 @@ def _do_send(
         output_tokens=output_tokens,
         reasoning_tokens=reasoning_tokens,
         completed_at=completed_at,
+        bridge_stage=bridge_stage,
+        bridge_questions=bridge_questions,
+        bridge_plan=bridge_plan,
+    )
+    plain_message = _build_plain_message(
+        task_id=task_id,
+        status=status,
+        assistant_message=assistant_message,
+        total_tokens=total_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        reasoning_tokens=reasoning_tokens,
+        completed_at=completed_at,
+        bridge_stage=bridge_stage,
+        bridge_questions=bridge_questions,
+        bridge_plan=bridge_plan,
     )
 
     for chat_id in config.allow_from:
-        ok = _send_message(config.token, chat_id, message, config.proxy)
+        ok = _send_message(
+            config.token,
+            chat_id,
+            markdown_message,
+            parse_mode="MarkdownV2",
+            reply_markup=reply_markup,
+            proxy=config.proxy,
+        )
+        if not ok:
+            # Fallback to plain text for markdown parse errors or long entities.
+            ok = _send_message(
+                config.token,
+                chat_id,
+                plain_message,
+                parse_mode=None,
+                reply_markup=reply_markup,
+                proxy=config.proxy,
+            )
         if ok:
             logger.info("Telegram notification sent to %s", chat_id)
 
@@ -165,6 +351,9 @@ async def send_telegram_notification(
     output_tokens: int | None = None,
     reasoning_tokens: int | None = None,
     completed_at: str | None = None,
+    bridge_stage: str | None = None,
+    bridge_questions: list[str] | None = None,
+    bridge_plan: str | None = None,
 ) -> None:
     """Async wrapper: run Telegram API calls in thread executor to avoid blocking."""
     loop = asyncio.get_running_loop()
@@ -181,5 +370,8 @@ async def send_telegram_notification(
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
             completed_at=completed_at,
+            bridge_stage=bridge_stage,
+            bridge_questions=bridge_questions,
+            bridge_plan=bridge_plan,
         ),
     )
